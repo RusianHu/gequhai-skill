@@ -1,2 +1,8 @@
 /.playwright-mcp
 /downloads
+.ace-tool/
+/dist/
+/release/
+/tmp/
+*.zip
+AGENTS.md
