@@ -13,6 +13,16 @@
 - [`scripts/sync-opencli.sh`](scripts/sync-opencli.sh)：Linux/macOS 同步脚本
 - [`scripts/install.ps1`](scripts/install.ps1)：Skill + CLI 一体安装脚本
 
+---
+
+## 一句话完成安装
+
+和你的 AI AGENT 工具说：
+
+```text
+帮我安装这个 skill （https://github.com/RusianHu/gequhai-skill）
+```
+
 ## opencli 默认安装位置
 
 ### Windows
@@ -149,3 +159,7 @@ opencli gequhai download 553 --output ./downloads
 - [`CHANGELOG.md`](CHANGELOG.md)：版本记录
 
 当前仓库已经具备“源码归档 + 跨平台同步 + 统一安装”的基础发布结构。
+
+## 许可证
+
+[`LICENSE`](LICENSE)
