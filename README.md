@@ -2,16 +2,11 @@
 
 基于 [歌曲海](Gequhai.com) 的自动化 Skill + opencli CLI 项目。
 
-通过这个 skill 可以让自动化工具从互联网中下载公开的MP3歌曲。
+通过这个 skill 可以 **让自动化工具从互联网中下载公开的MP3歌曲**。
 
-本仓库现在同时包含：
+<img width="1118" height="281" alt="image" src="https://github.com/user-attachments/assets/14810c74-139d-461f-bb6c-8e7e16370ccb" />
 
-- [`SKILL.md`](SKILL.md)：Claude / Roo Skill 定义
-- [`opencli/clis/gequhai`](opencli/clis/gequhai)：`opencli gequhai` 命令源码
-- [`scripts/sync-opencli.ps1`](scripts/sync-opencli.ps1)：Windows / PowerShell 同步脚本
-- [`scripts/sync-opencli.bat`](scripts/sync-opencli.bat)：Windows 批处理入口
-- [`scripts/sync-opencli.sh`](scripts/sync-opencli.sh)：Linux/macOS 同步脚本
-- [`scripts/install.ps1`](scripts/install.ps1)：Skill + CLI 一体安装脚本
+<img width="519" height="371" alt="image" src="https://github.com/user-attachments/assets/d8f60262-b355-4801-8ee5-7bf13228087a" />
 
 ---
 
