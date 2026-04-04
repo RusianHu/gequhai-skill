@@ -1,0 +1,16 @@
+{
+  "site": "gequhai",
+  "target_url": "https://www.gequhai.com/",
+  "final_url": "https://www.gequhai.com/",
+  "title": "歌曲海-海量高品质MP3音乐免费下载，一键搜索找好歌",
+  "framework": {
+    "nextjs": false,
+    "nuxt": false,
+    "react": false,
+    "vue2": false,
+    "vue3": false
+  },
+  "stores": [],
+  "top_strategy": "public",
+  "explored_at": "2026-04-04T14:20:01.561Z"
+}
