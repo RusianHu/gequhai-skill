@@ -12,7 +12,7 @@
 
 ## 一句话完成安装（推荐）
 
-和你的 AI AGENT 工具说：
+和你的 **claude code 、 龙虾** 等工具说：
 
 ```text
 帮我安装这个 skill （https://github.com/RusianHu/gequhai-skill）
