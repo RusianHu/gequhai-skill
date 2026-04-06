@@ -100,15 +100,17 @@ cli({
       );
     }
 
-    // 通过 HEAD 请求获取文件大小
+    // 通过 HEAD 请求获取文件大小和内容类型
     const tHead = Date.now();
     let fileSizeBytes = 0;
+    let contentType = '';
     await new Promise<void>((resolve) => {
       const client = mp3Url.startsWith('https') ? https : http;
       const req = client.request(mp3Url, { method: 'HEAD', timeout: 10000 }, (res) => {
         if (res.headers['content-length']) {
           fileSizeBytes = parseInt(res.headers['content-length'], 10);
         }
+        contentType = res.headers['content-type'] || '';
         resolve();
       });
       req.on('error', () => resolve());
@@ -117,43 +119,96 @@ cli({
     });
     const headMs = Date.now() - tHead;
 
-    // 先用临时文件名下载
-    const tempPath = path.resolve(outputDir, `_temp_${inputId}.mp3`);
+    // 生成唯一临时文件名（避免并发冲突）
+    const uniqueId = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+    const tempPath = path.resolve(outputDir, `_temp_${inputId}_${uniqueId}.mp3`);
     const tDownload = Date.now();
 
-    await new Promise<void>((resolve, reject) => {
-      const client = mp3Url.startsWith('https') ? https : http;
-      const timeout = setTimeout(() => reject(new Error('Download timeout')), 60000);
+    // 清理函数：确保任何失败路径都关闭请求和文件流
+    const cleanup = (activeReq: any, activeWs: any) => {
+      try { if (activeReq && !activeReq.destroyed) activeReq.destroy(); } catch {}
+      try { if (activeWs && !activeWs.destroyed) { activeWs.destroy(); } } catch {}
+      try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+    };
 
-      client.get(mp3Url, { timeout: 30000 }, (res) => {
-        if (res.statusCode === 302 || res.statusCode === 301) {
-          const loc = res.headers.location;
-          if (loc) {
-            client.get(loc, (res2) => {
-              const ws = fs.createWriteStream(tempPath);
-              res2.pipe(ws);
-              ws.on('finish', () => { ws.close(); clearTimeout(timeout); resolve(); });
-              ws.on('error', reject);
-            }).on('error', reject);
-          }
-          return;
-        }
-        const ws = fs.createWriteStream(tempPath);
-        res.pipe(ws);
-        ws.on('finish', () => { ws.close(); clearTimeout(timeout); resolve(); });
-        ws.on('error', reject);
-      }).on('error', reject);
-    });
+    // 下载函数：处理重定向和状态码校验
+    const downloadUrl = async (url: string, maxRedirects = 3): Promise<void> => {
+      return new Promise((resolve, reject) => {
+        let activeReq: any = null;
+        let activeWs: any = null;
+        const timeout = setTimeout(() => {
+          if (activeReq) { try { activeReq.destroy(); } catch {} }
+          if (activeWs) { try { activeWs.destroy(); } catch {} }
+          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch {}
+          reject(new Error('Download timeout'));
+        }, 60000);
+
+        const doRequest = (reqUrl: string, redirectsLeft: number) => {
+          const reqClient = reqUrl.startsWith('https') ? https : http;
+          activeReq = reqClient.get(reqUrl, { timeout: 30000 }, (res) => {
+            // 校验状态码
+            if (res.statusCode === 302 || res.statusCode === 301) {
+              const loc = res.headers.location;
+              if (loc && redirectsLeft > 0) {
+                // 处理相对路径重定向（使用当前请求 URL 作为基准）
+                let redirectUrl = loc;
+                if (loc.startsWith('/')) {
+                  const parsed = new URL(reqUrl);
+                  redirectUrl = `${parsed.protocol}//${parsed.host}${loc}`;
+                }
+                doRequest(redirectUrl, redirectsLeft - 1);
+              } else {
+                clearTimeout(timeout);
+                reject(new CliError('REDIRECT_ERROR', `重定向失败: ${loc || '无 location'}`, '歌曲可能不支持下载'));
+              }
+              return;
+            }
+            if (res.statusCode !== 200) {
+              clearTimeout(timeout);
+              reject(new CliError('DOWNLOAD_ERROR', `下载失败: HTTP ${res.statusCode}`, '歌曲可能不支持下载或有版权限制'));
+              return;
+            }
+            // 校验内容类型（如果是明确的非音频类型则报错）
+            const resContentType = res.headers['content-type'] || '';
+            if (resContentType && !resContentType.includes('audio') && !resContentType.includes('octet-stream') && !resContentType.includes('application')) {
+              clearTimeout(timeout);
+              reject(new CliError('CONTENT_TYPE_ERROR', `内容类型异常: ${resContentType}`, '下载链接可能无效'));
+              return;
+            }
+
+            activeWs = fs.createWriteStream(tempPath);
+            res.pipe(activeWs);
+            activeWs.on('finish', () => { activeWs.close(); clearTimeout(timeout); resolve(); });
+            activeWs.on('error', (err) => { clearTimeout(timeout); cleanup(activeReq, activeWs); reject(err); });
+          }).on('error', (err) => { clearTimeout(timeout); reject(err); });
+        };
+
+        doRequest(url, maxRedirects);
+      });
+    };
+
+    await downloadUrl(mp3Url);
+
+    const downloadMs = Date.now() - tDownload;
 
     // 分析 MP3 文件获取码率、时长等信息
     let mp3Info: any = {};
     try {
       const { execSync } = await import('node:child_process');
-      const scriptPath = 'C:\\Users\\admin\\.opencli\\clis\\gequhai\\_analyze_mp3.py';
-      const result = execSync(`python "${scriptPath}" "${tempPath}"`, { encoding: 'utf8', timeout: 10000 });
-      mp3Info = JSON.parse(result);
-    } catch {
-      // 如果分析失败，跳过
+      // 使用相对路径推导脚本位置
+      const scriptPath = path.join(__dirname, '_analyze_mp3.py');
+      if (!fs.existsSync(scriptPath)) {
+        console.error(`[警告] MP3 分析脚本不存在: ${scriptPath}`);
+      } else {
+        const result = execSync(`python "${scriptPath}" "${tempPath}"`, { encoding: 'utf8', timeout: 10000 });
+        try {
+          mp3Info = JSON.parse(result);
+        } catch (e) {
+          console.error(`[警告] MP3 分析脚本输出解析失败: ${(e as Error).message}`);
+        }
+      }
+    } catch (e) {
+      console.error(`[警告] MP3 分析失败: ${(e as Error).message}`);
     }
 
     // 构建含码率的文件名：{歌名} - {歌手} [{码率}].mp3
@@ -164,29 +219,43 @@ cli({
     const finalFileName = `${title} - ${artist}${bitrateTag}.mp3`.replace(/[<>:"/\\|?*]/g, '_');
     const filePath = path.resolve(outputDir, finalFileName);
 
-    // 重命名为最终文件名
+    // 重命名为最终文件名（避免覆盖已存在文件）
+    let actualFilePath = filePath;
     if (tempPath !== filePath) {
       if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath); // 删除已存在的文件
+        // 追加序号避免覆盖
+        let counter = 1;
+        const ext = path.extname(filePath);
+        const baseName = path.basename(filePath, ext);
+        let newFilePath = filePath;
+        while (fs.existsSync(newFilePath)) {
+          newFilePath = path.join(path.dirname(filePath), `${baseName}(${counter})${ext}`);
+          counter++;
+        }
+        fs.renameSync(tempPath, newFilePath);
+        actualFilePath = newFilePath;
+        console.error(`[提示] 文件已存在，保存为: ${newFilePath}`);
+      } else {
+        fs.renameSync(tempPath, filePath);
+        actualFilePath = filePath;
       }
-      fs.renameSync(tempPath, filePath);
     }
 
+    const finalFileSize = fs.statSync(actualFilePath).size;
     const fileSizeMB = mp3Info.file_size || (fileSizeBytes > 0
       ? `${(fileSizeBytes / (1024 * 1024)).toFixed(2)} MB`
-      : `${(fs.statSync(filePath).size / (1024 * 1024)).toFixed(2)} MB`);
+      : `${(finalFileSize / (1024 * 1024)).toFixed(2)} MB`);
 
-    const downloadMs = Date.now() - tDownload;
     const analyzeMs = Date.now() - tDownload - downloadMs;
     const totalMs = Date.now() - t0;
-    const speedMBps = (fileSizeBytes / 1024 / 1024) / (downloadMs / 1000);
+    const speedMBps = downloadMs > 0 ? (finalFileSize / 1024 / 1024) / (downloadMs / 1000) : 0;
     console.error(`[性能] 页面加载: ${t1 - t0}ms | HEAD: ${headMs}ms | 下载: ${downloadMs}ms (${speedMBps.toFixed(2)} MB/s) | 分析: ${analyzeMs}ms | 总耗时: ${totalMs}ms`);
 
     return {
       title,
       artist,
       album: mp3Info.album || '',
-      file_path: filePath,
+      file_path: actualFilePath || filePath,
       file_size: fileSizeMB,
       bitrate: bitrate || 'N/A',
       duration: mp3Info.duration || 'N/A',

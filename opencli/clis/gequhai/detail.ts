@@ -35,19 +35,40 @@ cli({
           || document.querySelector('h1')
           || document.querySelector('.music-title');
         if (titleEl) title = titleEl.textContent?.trim() || '';
-        
-        // 从页面文本中提取标题（格式通常为 "歌曲名 - 歌手名"）
-        if (!title) {
-          const textContent = document.body.textContent || '';
-          const match = textContent.match(/(.+?)\s*-\s*(.+?)\n/);
-          if (match) title = match[1]?.trim() || '';
-        }
 
         // 尝试多种方式获取歌手名
         let artist = '';
         const artistEl = document.querySelector('#current-music-author')
           || document.querySelector('.artist-name');
         if (artistEl) artist = artistEl.textContent?.trim() || '';
+
+        // 从页面文本中提取标题（格式通常为 "歌曲名 - 歌手名"）
+        // 仅在标题选择器失效时使用，且要求页面有歌词区或下载按钮作为"歌曲页特征"
+        let titleFromText = '';
+        let artistFromText = '';
+        if (!title) {
+          const hasLrc = !!document.querySelector('#content-lrc2');
+          const hasDownload = !!document.querySelector('#btn-download-mp3');
+          const hasAppData = !!window['appData'];
+          // 只有存在歌曲页特征时才尝试从文本提取
+          if (hasLrc || hasDownload || hasAppData) {
+            // 优先从播放器容器或主内容区提取
+            const mainContent = document.querySelector('.aplayer, .music-info, .play-container, main') || document.body;
+            const textContent = mainContent.textContent || '';
+            const titleRegex = new RegExp('(.+?)\\s*-\\s*(.+?)(?:\\n|$)');
+            const match = textContent.match(titleRegex);
+            if (match) {
+              titleFromText = match[1]?.trim() || '';
+              artistFromText = match[2]?.trim() || '';
+              // 验证提取的标题看起来像歌名（不太长，不含特殊字符过多）
+              if (titleFromText.length > 0 && titleFromText.length < 100) {
+                title = titleFromText;
+                // 如果歌手名为空，用从文本提取的填充
+                if (!artist) artist = artistFromText;
+              }
+            }
+          }
+        }
 
         // 获取歌词
         const lrcEl = document.querySelector('#content-lrc2');
@@ -65,7 +86,13 @@ cli({
       })()
     `);
 
-    if (!result || !result.title) {
+    // 增强成功判定：要求 title 非空且至少满足以下之一：有歌词、有下载链接、有封面
+    const hasLyrics = result.lyrics && result.lyrics.length > 10;
+    const hasDownloadUrl = result.download_url && result.download_url.startsWith('http');
+    const hasCover = result.cover && result.cover.startsWith('http');
+    const hasValidContent = hasLyrics || hasDownloadUrl || hasCover;
+
+    if (!result || !result.title || !hasValidContent) {
       throw new CliError(
         'NO_DATA',
         `无法获取歌曲 ID ${id} 的详情`,

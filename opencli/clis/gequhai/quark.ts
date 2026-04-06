@@ -35,27 +35,48 @@ cli({
         const mp3ExtraUrl = window.mp3_extra_url || '';
         // 解码夸克网盘链接: #→H, %→S, 然后 base64 解码
         let quarkUrl = '';
+        let decodeError = '';
         if (mp3ExtraUrl) {
           try {
             const decoded = mp3ExtraUrl.replace(/#/g, 'H').replace(/%/g, 'S');
             quarkUrl = atob(decoded);
           } catch (e) {
-            quarkUrl = mp3ExtraUrl;
+            decodeError = (e instanceof Error) ? e.message : String(e);
+            quarkUrl = '';
           }
         }
         return {
           title: appData.mp3_title || '未知歌曲',
           artist: appData.mp3_author || '未知艺术家',
-          quark_url: quarkUrl
+          quark_url: quarkUrl,
+          decode_error: decodeError,
+          raw_extra_url: mp3ExtraUrl
         };
       })()
     `);
 
+    // 校验解码结果是否为有效 URL
     if (!info.quark_url) {
+      if (info.decode_error) {
+        throw new CliError(
+          'DECODE_ERROR',
+          `歌曲 ${inputId} 夸克网盘链接解码失败: ${info.decode_error}`,
+          '该歌曲可能不提供高品质下载或链接已失效',
+        );
+      }
       throw new CliError(
         'NO_QUARK_URL',
         `歌曲 ${inputId} 未找到夸克网盘链接`,
         '该歌曲可能不提供高品质下载',
+      );
+    }
+
+    // 额外校验：解码结果应该是 http(s) 开头的 URL
+    if (!info.quark_url.startsWith('http')) {
+      throw new CliError(
+        'INVALID_QUARK_URL',
+        `歌曲 ${inputId} 夸克网盘链接格式异常: ${info.quark_url.substring(0, 50)}...`,
+        '链接可能已失效或格式不正确',
       );
     }
 
